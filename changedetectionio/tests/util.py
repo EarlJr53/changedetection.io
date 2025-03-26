@@ -76,6 +76,14 @@ def set_more_modified_response():
     return None
 
 
+def set_empty_text_response():
+    test_return_data = """<html><body></body></html>"""
+
+    with open("test-datastore/endpoint-content.txt", "w") as f:
+        f.write(test_return_data)
+
+    return None
+
 def wait_for_notification_endpoint_output():
     '''Apprise can take a few seconds to fire'''
     #@todo - could check the apprise object directly instead of looking for this file
@@ -86,20 +94,6 @@ def wait_for_notification_endpoint_output():
             return True
 
     return False
-
-
-# kinda funky, but works for now
-def extract_api_key_from_UI(client):
-    import re
-    res = client.get(
-        url_for("settings_page"),
-    )
-    # <span id="api-key">{{api_key}}</span>
-
-    m = re.search('<span id="api-key">(.+?)</span>', str(res.data))
-    api_key = m.group(1)
-    return api_key.strip()
-
 
 # kinda funky, but works for now
 def get_UUID_for_tag_name(client, name):
@@ -114,7 +108,7 @@ def get_UUID_for_tag_name(client, name):
 def extract_rss_token_from_UI(client):
     import re
     res = client.get(
-        url_for("index"),
+        url_for("watchlist.index"),
     )
     m = re.search('token=(.+?)"', str(res.data))
     token_key = m.group(1)
@@ -124,7 +118,7 @@ def extract_rss_token_from_UI(client):
 def extract_UUID_from_client(client):
     import re
     res = client.get(
-        url_for("index"),
+        url_for("watchlist.index"),
     )
     # <span id="api-key">{{api_key}}</span>
 
@@ -139,7 +133,7 @@ def wait_for_all_checks(client):
     # because sub-second rechecks are problematic in testing, use lots of delays
     time.sleep(1)
     while attempt < 60:
-        res = client.get(url_for("index"))
+        res = client.get(url_for("watchlist.index"))
         if not b'Checking now' in res.data:
             break
         logging.getLogger().info("Waiting for watch-list to not say 'Checking now'.. {}".format(attempt))
@@ -179,7 +173,7 @@ def live_server_setup(live_server):
                 return resp
 
             # Tried using a global var here but didn't seem to work, so reading from a file instead.
-            with open("test-datastore/endpoint-content.txt", "r") as f:
+            with open("test-datastore/endpoint-content.txt", "rb") as f:
                 resp = make_response(f.read(), status_code)
                 if uppercase_headers:
                     resp.headers['CONTENT-TYPE'] = ctype if ctype else 'text/html'
@@ -215,9 +209,10 @@ def live_server_setup(live_server):
     def test_method():
         return request.method
 
-    # Where we POST to as a notification
-    @live_server.app.route('/test_notification_endpoint', methods=['POST', 'GET'])
+    # Where we POST to as a notification, also use a space here to test URL escaping is OK across all tests that use this. ( #2868 )
+    @live_server.app.route('/test_notification endpoint', methods=['POST', 'GET'])
     def test_notification_endpoint():
+
         with open("test-datastore/notification.txt", "wb") as f:
             # Debug method, dump all POST to file also, used to prove #65
             data = request.stream.read()
@@ -235,8 +230,11 @@ def live_server_setup(live_server):
                 f.write(request.content_type)
 
         print("\n>> Test notification endpoint was hit.\n", data)
-        return "Text was set"
 
+        content = "Text was set"
+        status_code = request.args.get('status_code',200)
+        resp = make_response(content, status_code)
+        return resp
 
     # Just return the verb in the request
     @live_server.app.route('/test-basicauth', methods=['GET'])
@@ -273,15 +271,43 @@ def live_server_setup(live_server):
             <p id="remove">This text should be removed</p>
               <form onsubmit="event.preventDefault();">
             <!-- obfuscated text so that we dont accidentally get a false positive due to conversion of the source :) --->
-                <button name="test-button" onclick="getElementById('remove').remove();getElementById('some-content').innerHTML = atob('SSBzbWVsbCBKYXZhU2NyaXB0IGJlY2F1c2UgdGhlIGJ1dHRvbiB3YXMgcHJlc3NlZCE=')">Click here</button>
-                <div id=some-content></div>
+                <button name="test-button" onclick="
+                getElementById('remove').remove();
+                getElementById('some-content').innerHTML = atob('SSBzbWVsbCBKYXZhU2NyaXB0IGJlY2F1c2UgdGhlIGJ1dHRvbiB3YXMgcHJlc3NlZCE=');
+                getElementById('reflect-text').innerHTML = getElementById('test-input-text').value;
+                ">Click here</button>
+                
+                <div id="some-content"></div>
+                
                 <pre>
                 {header_text.lower()}
                 </pre>
-              </body>
+                
+                <br>
+                <!-- used for testing that the jinja2 compiled here --->
+                <input type="text" value="" id="test-input-text" /><br>
+                <div id="reflect-text">Waiting to reflect text from #test-input-text here</div>
+              </form>
+                
+           </body>
          </html>""", 200)
         resp.headers['Content-Type'] = 'text/html'
         return resp
 
     live_server.start()
 
+def get_index(client):
+    import inspect
+    # Get the caller's frame (parent function)
+    frame = inspect.currentframe()
+    caller_frame = frame.f_back  # Go back to the caller's frame
+    caller_name = caller_frame.f_code.co_name
+    caller_line = caller_frame.f_lineno
+
+    print(f"Called by: {caller_name}, Line: {caller_line}")
+
+    res = client.get(url_for("watchlist.index"))
+    with open(f"test-datastore/index-{caller_name}-{caller_line}.html", 'wb') as f:
+        f.write(res.data)
+
+    return res

@@ -1,4 +1,3 @@
-version: '3.2'
 services:
     changedetection:
       image: ghcr.io/dgtlmoon/changedetection.io
@@ -16,9 +15,6 @@ services:
 
   #        Default listening port, can also be changed with the -p option
   #      - PORT=5000
-
-  #      - PUID=1000
-  #      - PGID=1000
   #
   #        Log levels are in descending order. (TRACE is the most detailed one)
   #        Log output levels: TRACE, DEBUG(default), INFO, SUCCESS, WARNING, ERROR, CRITICAL
@@ -63,6 +59,12 @@ services:
   #
   #        If you want to watch local files file:///path/to/file.txt (careful! security implications!)
   #      - ALLOW_FILE_URI=False
+  #
+  #        For complete privacy if you don't want to use the 'check version' / telemetry service
+  #      - DISABLE_VERSION_CHECK=true
+  #
+  #        A valid timezone name to run as (for scheduling watch checking) see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+  #      - TZ=America/Los_Angeles
   
       # Comment out ports: when using behind a reverse proxy , enable networks: etc.
       # ports:

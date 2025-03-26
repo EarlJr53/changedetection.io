@@ -13,6 +13,7 @@
 @import "parts/_menu";
 @import "parts/_love";
 @import "parts/preview_text_filter";
+@import "parts/_edit";
 
 body {
   color: var(--color-text);
@@ -380,7 +381,15 @@ a.pure-button-selected {
 }
 
 .notifications-wrapper {
-  padding: 0.5rem 0 1rem 0;
+  padding-top: 0.5rem;
+  #notification-test-log {
+    padding-top: 1rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
 }
 
 label {

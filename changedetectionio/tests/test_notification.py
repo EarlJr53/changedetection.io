@@ -6,7 +6,7 @@ from flask import url_for
 from loguru import logger
 
 from .util import set_original_response, set_modified_response, set_more_modified_response, live_server_setup, wait_for_all_checks, \
-    set_longer_modified_response
+    set_longer_modified_response, get_index
 from . util import  extract_UUID_from_client
 import logging
 import base64
@@ -28,8 +28,8 @@ def test_check_notification(client, live_server, measure_memory_usage):
     set_original_response()
 
     # Re 360 - new install should have defaults set
-    res = client.get(url_for("settings_page"))
-    notification_url = url_for('test_notification_endpoint', _external=True).replace('http', 'json')
+    res = client.get(url_for("settings.settings_page"))
+    notification_url = url_for('test_notification_endpoint', _external=True).replace('http', 'json')+"?status_code=204"
 
     assert default_notification_body.encode() in res.data
     assert default_notification_title.encode() in res.data
@@ -37,7 +37,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
     #####################
     # Set this up for when we remove the notification from the watch, it should fallback with these details
     res = client.post(
-        url_for("settings_page"),
+        url_for("settings.settings_page"),
         data={"application-notification_urls": notification_url,
               "application-notification_title": "fallback-title "+default_notification_title,
               "application-notification_body": "fallback-body "+default_notification_body,
@@ -53,7 +53,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
     env_base_url = os.getenv('BASE_URL', '').strip()
     if len(env_base_url):
         logging.debug(">>> BASE_URL enabled, looking for %s", env_base_url)
-        res = client.get(url_for("settings_page"))
+        res = client.get(url_for("settings.settings_page"))
         assert bytes(env_base_url.encode('utf-8')) in res.data
     else:
         logging.debug(">>> SKIPPING BASE_URL check")
@@ -62,7 +62,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
     # Add our URL to the import page
     test_url = url_for('test_endpoint', _external=True)
     res = client.post(
-        url_for("form_quick_watch_add"),
+        url_for("ui.ui_views.form_quick_watch_add"),
         data={"url": test_url, "tags": ''},
         follow_redirects=True
     )
@@ -76,7 +76,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
     testimage_png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
 
 
-    uuid = extract_UUID_from_client(client)
+    uuid = next(iter(live_server.app.config['DATASTORE'].data['watching']))
     datastore = 'test-datastore'
     with open(os.path.join(datastore, str(uuid), 'last-screenshot.png'), 'wb') as f:
         f.write(base64.b64decode(testimage_png))
@@ -113,7 +113,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
         "fetch_backend": "html_requests"})
 
     res = client.post(
-        url_for("edit_page", uuid="first"),
+        url_for("ui.ui_edit.edit_page", uuid="first"),
         data=notification_form_data,
         follow_redirects=True
     )
@@ -123,7 +123,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
     # Hit the edit page, be sure that we saved it
     # Re #242 - wasnt saving?
     res = client.get(
-        url_for("edit_page", uuid="first"))
+        url_for("ui.ui_edit.edit_page", uuid="first"))
     assert bytes(notification_url.encode('utf-8')) in res.data
     assert bytes("New ChangeDetection.io Notification".encode('utf-8')) in res.data
 
@@ -134,8 +134,15 @@ def test_check_notification(client, live_server, measure_memory_usage):
     set_modified_response()
 
     # Trigger a check
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
+    wait_for_all_checks(client)
     time.sleep(3)
+
+    # Check no errors were recorded
+    res = client.get(url_for("watchlist.index"))
+    assert b'notification-error' not in res.data
+
+
     # Verify what was sent as a notification, this file should exist
     with open("test-datastore/notification.txt", "r") as f:
         notification_submission = f.read()
@@ -181,7 +188,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
 
     # This should insert the {current_snapshot}
     set_more_modified_response()
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     time.sleep(3)
     # Verify what was sent as a notification, this file should exist
     with open("test-datastore/notification.txt", "r") as f:
@@ -194,21 +201,21 @@ def test_check_notification(client, live_server, measure_memory_usage):
     os.unlink("test-datastore/notification.txt")
 
     # Trigger a check
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     wait_for_all_checks(client)
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     wait_for_all_checks(client)
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     wait_for_all_checks(client)
     assert os.path.exists("test-datastore/notification.txt") == False
 
-    res = client.get(url_for("notification_logs"))
+    res = client.get(url_for("settings.notification_logs"))
     # be sure we see it in the output log
     assert b'New ChangeDetection.io Notification - ' + test_url.encode('utf-8') in res.data
 
     set_original_response()
     res = client.post(
-        url_for("edit_page", uuid="first"),
+        url_for("ui.ui_edit.edit_page", uuid="first"),
         data={
         "url": test_url,
         "tags": "my tag",
@@ -232,7 +239,7 @@ def test_check_notification(client, live_server, measure_memory_usage):
 
     # cleanup for the next
     client.get(
-        url_for("form_delete", uuid="all"),
+        url_for("ui.form_delete", uuid="all"),
         follow_redirects=True
     )
 
@@ -244,7 +251,7 @@ def test_notification_validation(client, live_server, measure_memory_usage):
     # Add our URL to the import page
     test_url = url_for('test_endpoint', _external=True)
     res = client.post(
-        url_for("form_quick_watch_add"),
+        url_for("ui.ui_views.form_quick_watch_add"),
         data={"url": test_url, "tags": 'nice one'},
         follow_redirects=True
     )
@@ -253,7 +260,7 @@ def test_notification_validation(client, live_server, measure_memory_usage):
 
     # Re #360 some validation
 #    res = client.post(
-#        url_for("edit_page", uuid="first"),
+#        url_for("ui.ui_edit.edit_page", uuid="first"),
 #        data={"notification_urls": 'json://localhost/foobar',
 #              "notification_title": "",
 #              "notification_body": "",
@@ -269,7 +276,7 @@ def test_notification_validation(client, live_server, measure_memory_usage):
 
     # cleanup for the next
     client.get(
-        url_for("form_delete", uuid="all"),
+        url_for("ui.form_delete", uuid="all"),
         follow_redirects=True
     )
 
@@ -284,10 +291,10 @@ def test_notification_custom_endpoint_and_jinja2(client, live_server, measure_me
     # CUSTOM JSON BODY CHECK for POST://
     set_original_response()
     # https://github.com/caronc/apprise/wiki/Notify_Custom_JSON#header-manipulation
-    test_notification_url = url_for('test_notification_endpoint', _external=True).replace('http://', 'post://')+"?xxx={{ watch_url }}&+custom-header=123&+second=hello+world%20%22space%22"
+    test_notification_url = url_for('test_notification_endpoint', _external=True).replace('http://', 'post://')+"?status_code=204&xxx={{ watch_url }}&+custom-header=123&+second=hello+world%20%22space%22"
 
     res = client.post(
-        url_for("settings_page"),
+        url_for("settings.settings_page"),
         data={
               "application-fetch_backend": "html_requests",
               "application-minutes_between_check": 180,
@@ -304,7 +311,7 @@ def test_notification_custom_endpoint_and_jinja2(client, live_server, measure_me
     # Add a watch and trigger a HTTP POST
     test_url = url_for('test_endpoint', _external=True)
     res = client.post(
-        url_for("form_quick_watch_add"),
+        url_for("ui.ui_views.form_quick_watch_add"),
         data={"url": test_url, "tags": 'nice one'},
         follow_redirects=True
     )
@@ -314,10 +321,15 @@ def test_notification_custom_endpoint_and_jinja2(client, live_server, measure_me
     wait_for_all_checks(client)
     set_modified_response()
 
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     wait_for_all_checks(client)
 
     time.sleep(2) # plus extra delay for notifications to fire
+
+
+    # Check no errors were recorded, because we asked for 204 which is slightly uncommon but is still OK
+    res = get_index(client)
+    assert b'notification-error' not in res.data
 
     with open("test-datastore/notification.txt", 'r') as f:
         x = f.read()
@@ -349,7 +361,7 @@ def test_notification_custom_endpoint_and_jinja2(client, live_server, measure_me
     os.unlink("test-datastore/notification-url.txt")
 
     client.get(
-        url_for("form_delete", uuid="all"),
+        url_for("ui.form_delete", uuid="all"),
         follow_redirects=True
     )
 
@@ -360,16 +372,18 @@ def test_global_send_test_notification(client, live_server, measure_memory_usage
     #live_server_setup(live_server)
     set_original_response()
     if os.path.isfile("test-datastore/notification.txt"):
-        os.unlink("test-datastore/notification.txt")
+        os.unlink("test-datastore/notification.txt") \
+
+    # 1995 UTF-8 content should be encoded
+    test_body = 'change detection is cool 网站监测 内容更新了'
 
     # otherwise other settings would have already existed from previous tests in this file
     res = client.post(
-        url_for("settings_page"),
+        url_for("settings.settings_page"),
         data={
             "application-fetch_backend": "html_requests",
             "application-minutes_between_check": 180,
-            #1995 UTF-8 content should be encoded
-            "application-notification_body": 'change detection is cool 网站监测 内容更新了',
+            "application-notification_body": test_body,
             "application-notification_format": default_notification_format,
             "application-notification_urls": "",
             "application-notification_title": "New ChangeDetection.io Notification - {{ watch_url }}",
@@ -380,7 +394,7 @@ def test_global_send_test_notification(client, live_server, measure_memory_usage
 
     test_url = url_for('test_endpoint', _external=True)
     res = client.post(
-        url_for("form_quick_watch_add"),
+        url_for("ui.ui_views.form_quick_watch_add"),
         data={"url": test_url, "tags": 'nice one'},
         follow_redirects=True
     )
@@ -391,7 +405,7 @@ def test_global_send_test_notification(client, live_server, measure_memory_usage
 
     ######### Test global/system settings
     res = client.post(
-        url_for("ajax_callback_send_notification_test")+"?mode=global-settings",
+        url_for("ui.ui_notification.ajax_callback_send_notification_test")+"?mode=global-settings",
         data={"notification_urls": test_notification_url},
         follow_redirects=True
     )
@@ -399,18 +413,16 @@ def test_global_send_test_notification(client, live_server, measure_memory_usage
     assert res.status_code != 400
     assert res.status_code != 500
 
-    # Give apprise time to fire
-    time.sleep(4)
 
     with open("test-datastore/notification.txt", 'r') as f:
         x = f.read()
-        assert 'change detection is cool 网站监测 内容更新了' in x
+        assert test_body in x
 
     os.unlink("test-datastore/notification.txt")
 
     ######### Test group/tag settings
     res = client.post(
-        url_for("ajax_callback_send_notification_test")+"?mode=group-settings",
+        url_for("ui.ui_notification.ajax_callback_send_notification_test")+"?mode=group-settings",
         data={"notification_urls": test_notification_url},
         follow_redirects=True
     )
@@ -427,14 +439,14 @@ def test_global_send_test_notification(client, live_server, measure_memory_usage
         assert 'change detection is cool 网站监测 内容更新了' in x
 
     client.get(
-        url_for("form_delete", uuid="all"),
+        url_for("ui.form_delete", uuid="all"),
         follow_redirects=True
     )
 
     ######### Test global/system settings - When everything is deleted it should give a helpful error
     # See #2727
     res = client.post(
-        url_for("ajax_callback_send_notification_test")+"?mode=global-settings",
+        url_for("ui.ui_notification.ajax_callback_send_notification_test")+"?mode=global-settings",
         data={"notification_urls": test_notification_url},
         follow_redirects=True
     )
@@ -442,4 +454,67 @@ def test_global_send_test_notification(client, live_server, measure_memory_usage
     assert b"Error: You must have atleast one watch configured for 'test notification' to work" in res.data
 
 
+def _test_color_notifications(client, notification_body_token):
 
+    from changedetectionio.diff import ADDED_STYLE, REMOVED_STYLE
+
+    set_original_response()
+
+    if os.path.isfile("test-datastore/notification.txt"):
+        os.unlink("test-datastore/notification.txt")
+
+
+    test_notification_url = url_for('test_notification_endpoint', _external=True).replace('http://', 'post://')+"?xxx={{ watch_url }}&+custom-header=123"
+
+
+    # otherwise other settings would have already existed from previous tests in this file
+    res = client.post(
+        url_for("settings.settings_page"),
+        data={
+            "application-fetch_backend": "html_requests",
+            "application-minutes_between_check": 180,
+            "application-notification_body": notification_body_token,
+            "application-notification_format": "HTML Color",
+            "application-notification_urls": test_notification_url,
+            "application-notification_title": "New ChangeDetection.io Notification - {{ watch_url }}",
+        },
+        follow_redirects=True
+    )
+    assert b'Settings updated' in res.data
+
+    test_url = url_for('test_endpoint', _external=True)
+    res = client.post(
+        url_for("ui.ui_views.form_quick_watch_add"),
+        data={"url": test_url, "tags": 'nice one'},
+        follow_redirects=True
+    )
+
+    assert b"Watch added" in res.data
+
+    wait_for_all_checks(client)
+
+    set_modified_response()
+
+
+    res = client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
+    assert b'Queued 1 watch for rechecking.' in res.data
+
+    wait_for_all_checks(client)
+    time.sleep(3)
+
+    with open("test-datastore/notification.txt", 'r') as f:
+        x = f.read()
+        assert f'<span style="{REMOVED_STYLE}">Which is across multiple lines' in x
+
+
+    client.get(
+        url_for("ui.form_delete", uuid="all"),
+        follow_redirects=True
+    )
+
+def test_html_color_notifications(client, live_server, measure_memory_usage):
+
+    #live_server_setup(live_server)
+    _test_color_notifications(client, '{{diff}}')
+    _test_color_notifications(client, '{{diff_full}}')
+    

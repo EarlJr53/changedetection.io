@@ -83,7 +83,7 @@ class model(watch_base):
                     flash, Markup, url_for
                 )
                 message = Markup('<a href="{}#general">The URL {} is invalid and cannot be used, click to edit</a>'.format(
-                    url_for('edit_page', uuid=self.get('uuid')), self.get('url', '')))
+                    url_for('ui.ui_edit.edit_page', uuid=self.get('uuid')), self.get('url', '')))
                 flash(message, 'error')
                 return ''
 
@@ -247,37 +247,32 @@ class model(watch_base):
         bump = self.history
         return self.__newest_history_key
 
-    # Given an arbitrary timestamp, find the closest next key
-    # For example, last_viewed = 1000 so it should return the next 1001 timestamp
-    #
-    # used for the [diff] button so it can preset a smarter from_version
+    # Given an arbitrary timestamp, find the best history key for the [diff] button so it can preset a smarter from_version
     @property
-    def get_next_snapshot_key_to_last_viewed(self):
+    def get_from_version_based_on_last_viewed(self):
 
         """Unfortunately for now timestamp is stored as string key"""
         keys = list(self.history.keys())
         if not keys:
             return None
+        if len(keys) == 1:
+            return keys[0]
 
         last_viewed = int(self.get('last_viewed'))
-        prev_k = keys[0]
         sorted_keys = sorted(keys, key=lambda x: int(x))
         sorted_keys.reverse()
 
-        # When the 'last viewed' timestamp is greater than the newest snapshot, return second last
-        if last_viewed > int(sorted_keys[0]):
+        # When the 'last viewed' timestamp is greater than or equal the newest snapshot, return second newest
+        if last_viewed >= int(sorted_keys[0]):
             return sorted_keys[1]
+        
+        # When the 'last viewed' timestamp is between snapshots, return the older snapshot
+        for newer, older in list(zip(sorted_keys[0:], sorted_keys[1:])):
+            if last_viewed < int(newer) and last_viewed >= int(older):
+                return older
 
-        for k in sorted_keys:
-            if int(k) < last_viewed:
-                if prev_k == sorted_keys[0]:
-                    # Return the second last one so we dont recommend the same version compares itself
-                    return sorted_keys[1]
-
-                return prev_k
-            prev_k = k
-
-        return keys[0]
+        # When the 'last viewed' timestamp is less than the oldest snapshot, return oldest
+        return sorted_keys[-1]
 
     def get_history_snapshot(self, timestamp):
         import brotli
@@ -301,11 +296,11 @@ class model(watch_base):
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read()
 
-    # Save some text file to the appropriate path and bump the history
+   # Save some text file to the appropriate path and bump the history
     # result_obj from fetch_site_status.run()
     def save_history_text(self, contents, timestamp, snapshot_id):
         import brotli
-
+        import tempfile
         logger.trace(f"{self.get('uuid')} - Updating history.txt with timestamp {timestamp}")
 
         self.ensure_data_dir_exists()
@@ -313,33 +308,43 @@ class model(watch_base):
         threshold = int(os.getenv('SNAPSHOT_BROTLI_COMPRESSION_THRESHOLD', 1024))
         skip_brotli = strtobool(os.getenv('DISABLE_BROTLI_TEXT_SNAPSHOT', 'False'))
 
+        # Decide on snapshot filename and destination path
         if not skip_brotli and len(contents) > threshold:
             snapshot_fname = f"{snapshot_id}.txt.br"
-            dest = os.path.join(self.watch_data_dir, snapshot_fname)
-            if not os.path.exists(dest):
-                with open(dest, 'wb') as f:
-                    f.write(brotli.compress(contents.encode('utf-8'), mode=brotli.MODE_TEXT))
+            encoded_data = brotli.compress(contents.encode('utf-8'), mode=brotli.MODE_TEXT)
         else:
             snapshot_fname = f"{snapshot_id}.txt"
-            dest = os.path.join(self.watch_data_dir, snapshot_fname)
-            if not os.path.exists(dest):
-                with open(dest, 'wb') as f:
-                    f.write(contents.encode('utf-8'))
+            encoded_data = contents.encode('utf-8')
 
-        # Append to index
-        # @todo check last char was \n
+        dest = os.path.join(self.watch_data_dir, snapshot_fname)
+
+        # Write snapshot file atomically if it doesn't exist
+        if not os.path.exists(dest):
+            with tempfile.NamedTemporaryFile('wb', delete=False, dir=self.watch_data_dir) as tmp:
+                tmp.write(encoded_data)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+                tmp_path = tmp.name
+            os.rename(tmp_path, dest)
+
+        # Append to history.txt atomically
         index_fname = os.path.join(self.watch_data_dir, "history.txt")
-        with open(index_fname, 'a') as f:
-            f.write("{},{}\n".format(timestamp, snapshot_fname))
-            f.close()
+        index_line = f"{timestamp},{snapshot_fname}\n"
 
+        # Lets try force flush here since it's usually a very small file
+        # If this still fails in the future then try reading all to memory first, re-writing etc
+        with open(index_fname, 'a', encoding='utf-8') as f:
+            f.write(index_line)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # Update internal state
         self.__newest_history_key = timestamp
         self.__history_n += 1
 
         # @todo bump static cache of the last timestamp so we dont need to examine the file to set a proper ''viewed'' status
         return snapshot_fname
 
-    @property
     @property
     def has_empty_checktime(self):
         # using all() + dictionary comprehension
@@ -358,7 +363,7 @@ class model(watch_base):
     # Iterate over all history texts and see if something new exists
     # Always applying .strip() to start/end but optionally replace any other whitespace
     def lines_contain_something_unique_compared_to_history(self, lines: list, ignore_whitespace=False):
-        local_lines = []
+        local_lines = set([])
         if lines:
             if ignore_whitespace:
                 if isinstance(lines[0], str): # Can be either str or bytes depending on what was on the disk
@@ -533,21 +538,22 @@ class model(watch_base):
     def save_error_text(self, contents):
         self.ensure_data_dir_exists()
         target_path = os.path.join(self.watch_data_dir, "last-error.txt")
-        with open(target_path, 'w') as f:
+        with open(target_path, 'w', encoding='utf-8') as f:
             f.write(contents)
 
     def save_xpath_data(self, data, as_error=False):
         import json
+        import zlib
 
         if as_error:
-            target_path = os.path.join(self.watch_data_dir, "elements-error.json")
+            target_path = os.path.join(str(self.watch_data_dir), "elements-error.deflate")
         else:
-            target_path = os.path.join(self.watch_data_dir, "elements.json")
+            target_path = os.path.join(str(self.watch_data_dir), "elements.deflate")
 
         self.ensure_data_dir_exists()
 
-        with open(target_path, 'w') as f:
-            f.write(json.dumps(data))
+        with open(target_path, 'wb') as f:
+            f.write(zlib.compress(json.dumps(data).encode()))
             f.close()
 
     # Save as PNG, PNG is larger but better for doing visual diff in the future

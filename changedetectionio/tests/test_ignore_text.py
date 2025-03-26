@@ -96,7 +96,7 @@ def test_check_ignore_text_functionality(client, live_server, measure_memory_usa
     # Add our URL to the import page
     test_url = url_for('test_endpoint', _external=True)
     res = client.post(
-        url_for("import_page"),
+        url_for("imports.import_page"),
         data={"urls": test_url},
         follow_redirects=True
     )
@@ -108,7 +108,7 @@ def test_check_ignore_text_functionality(client, live_server, measure_memory_usa
     # Goto the edit page, add our ignore text
     # Add our URL to the import page
     res = client.post(
-        url_for("edit_page", uuid="first"),
+        url_for("ui.ui_edit.edit_page", uuid="first"),
         data={"ignore_text": ignore_text, "url": test_url, 'fetch_backend': "html_requests"},
         follow_redirects=True
     )
@@ -116,18 +116,18 @@ def test_check_ignore_text_functionality(client, live_server, measure_memory_usa
 
     # Check it saved
     res = client.get(
-        url_for("edit_page", uuid="first"),
+        url_for("ui.ui_edit.edit_page", uuid="first"),
     )
     assert bytes(ignore_text.encode('utf-8')) in res.data
 
     # Trigger a check
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
 
     # Give the thread time to pick it up
     wait_for_all_checks(client)
 
     # It should report nothing found (no new 'unviewed' class)
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
     assert b'unviewed' not in res.data
     assert b'/test-endpoint' in res.data
 
@@ -135,12 +135,12 @@ def test_check_ignore_text_functionality(client, live_server, measure_memory_usa
     set_modified_ignore_response()
 
     # Trigger a check
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     # Give the thread time to pick it up
     wait_for_all_checks(client)
 
     # It should report nothing found (no new 'unviewed' class)
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
     assert b'unviewed' not in res.data
     assert b'/test-endpoint' in res.data
 
@@ -148,20 +148,20 @@ def test_check_ignore_text_functionality(client, live_server, measure_memory_usa
 
     # Just to be sure.. set a regular modified change..
     set_modified_original_ignore_response()
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     wait_for_all_checks(client)
 
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
     assert b'unviewed' in res.data
 
-    res = client.get(url_for("preview_page", uuid="first"))
+    res = client.get(url_for("ui.ui_views.preview_page", uuid="first"))
 
     # SHOULD BE be in the preview, it was added in set_modified_original_ignore_response()
     # and we have "new ignore stuff" in ignore_text
     # it is only ignored, it is not removed (it will be highlighted too)
     assert b'new ignore stuff' in res.data
 
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     assert b'Deleted' in res.data
 
 # When adding some ignore text, it should not trigger a change, even if something else on that line changes
@@ -172,7 +172,7 @@ def test_check_global_ignore_text_functionality(client, live_server, measure_mem
 
     # Goto the settings page, add our ignore text
     res = client.post(
-        url_for("settings_page"),
+        url_for("settings.settings_page"),
         data={
             "requests-time_between_check-minutes": 180,
             "application-ignore_whitespace": "y",
@@ -187,7 +187,7 @@ def test_check_global_ignore_text_functionality(client, live_server, measure_mem
     # Add our URL to the import page
     test_url = url_for('test_endpoint', _external=True)
     res = client.post(
-        url_for("import_page"),
+        url_for("imports.import_page"),
         data={"urls": test_url},
         follow_redirects=True
     )
@@ -198,7 +198,7 @@ def test_check_global_ignore_text_functionality(client, live_server, measure_mem
 
     #Adding some ignore text should not trigger a change
     res = client.post(
-        url_for("edit_page", uuid="first"),
+        url_for("ui.ui_edit.edit_page", uuid="first"),
         data={"ignore_text": "something irrelevent but just to check", "url": test_url, 'fetch_backend': "html_requests"},
         follow_redirects=True
     )
@@ -206,15 +206,15 @@ def test_check_global_ignore_text_functionality(client, live_server, measure_mem
 
     # Check it saved
     res = client.get(
-        url_for("settings_page"),
+        url_for("settings.settings_page"),
     )
     assert bytes(ignore_text.encode('utf-8')) in res.data
 
     # Trigger a check
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     wait_for_all_checks(client)
     # It should report nothing found (no new 'unviewed' class), adding random ignore text should not cause a change
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
     assert b'unviewed' not in res.data
     assert b'/test-endpoint' in res.data
 #####
@@ -224,22 +224,22 @@ def test_check_global_ignore_text_functionality(client, live_server, measure_mem
     set_modified_ignore_response()
 
     # Trigger a check
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     # Give the thread time to pick it up
     wait_for_all_checks(client)
 
     # It should report nothing found (no new 'unviewed' class)
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
 
     assert b'unviewed' not in res.data
     assert b'/test-endpoint' in res.data
 
     # Just to be sure.. set a regular modified change that will trigger it
     set_modified_original_ignore_response()
-    client.get(url_for("form_watch_checknow"), follow_redirects=True)
+    client.get(url_for("ui.form_watch_checknow"), follow_redirects=True)
     wait_for_all_checks(client)
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
     assert b'unviewed' in res.data
 
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     assert b'Deleted' in res.data

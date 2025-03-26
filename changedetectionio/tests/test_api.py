@@ -2,7 +2,7 @@
 
 import time
 from flask import url_for
-from .util import live_server_setup, extract_api_key_from_UI, wait_for_all_checks
+from .util import live_server_setup, wait_for_all_checks
 
 import json
 import uuid
@@ -44,7 +44,6 @@ def set_modified_response():
 
     return None
 
-
 def is_valid_uuid(val):
     try:
         uuid.UUID(str(val))
@@ -56,17 +55,17 @@ def is_valid_uuid(val):
 def test_setup(client, live_server, measure_memory_usage):
     live_server_setup(live_server)
 
+
 def test_api_simple(client, live_server, measure_memory_usage):
     #live_server_setup(live_server)
 
-    api_key = extract_api_key_from_UI(client)
+    api_key = live_server.app.config['DATASTORE'].data['settings']['application'].get('api_access_token')
 
     # Create a watch
     set_original_response()
 
     # Validate bad URL
-    test_url = url_for('test_endpoint', _external=True,
-                       headers={'x-api-key': api_key}, )
+    test_url = url_for('test_endpoint', _external=True )
     res = client.post(
         url_for("createwatch"),
         data=json.dumps({"url": "h://xxxxxxxxxom"}),
@@ -129,6 +128,9 @@ def test_api_simple(client, live_server, measure_memory_usage):
     assert after_recheck_info['last_checked'] != before_recheck_info['last_checked']
     assert after_recheck_info['last_changed'] != 0
 
+    # #2877 When run in a slow fetcher like playwright etc
+    assert after_recheck_info['last_changed'] ==  after_recheck_info['last_checked']
+
     # Check history index list
     res = client.get(
         url_for("watchhistory", uuid=watch_uuid),
@@ -170,7 +172,7 @@ def test_api_simple(client, live_server, measure_memory_usage):
 
     assert watch.get('viewed') == False
     # Loading the most recent snapshot should force viewed to become true
-    client.get(url_for("diff_history_page", uuid="first"), follow_redirects=True)
+    client.get(url_for("ui.ui_views.diff_history_page", uuid="first"), follow_redirects=True)
 
     time.sleep(3)
     # Fetch the whole watch again, viewed should be true
@@ -256,7 +258,7 @@ def test_access_denied(client, live_server, measure_memory_usage):
 
     # Disable config_api_token_enabled and it should work
     res = client.post(
-        url_for("settings_page"),
+        url_for("settings.settings_page"),
         data={
             "requests-time_between_check-minutes": 180,
             "application-fetch_backend": "html_requests",
@@ -273,11 +275,11 @@ def test_access_denied(client, live_server, measure_memory_usage):
     assert res.status_code == 200
 
     # Cleanup everything
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     assert b'Deleted' in res.data
 
     res = client.post(
-        url_for("settings_page"),
+        url_for("settings.settings_page"),
         data={
             "requests-time_between_check-minutes": 180,
             "application-fetch_backend": "html_requests",
@@ -290,12 +292,11 @@ def test_access_denied(client, live_server, measure_memory_usage):
 def test_api_watch_PUT_update(client, live_server, measure_memory_usage):
 
     #live_server_setup(live_server)
-    api_key = extract_api_key_from_UI(client)
+    api_key = live_server.app.config['DATASTORE'].data['settings']['application'].get('api_access_token')
 
     # Create a watch
     set_original_response()
-    test_url = url_for('test_endpoint', _external=True,
-                       headers={'x-api-key': api_key}, )
+    test_url = url_for('test_endpoint', _external=True)
 
     # Create new
     res = client.post(
@@ -318,7 +319,7 @@ def test_api_watch_PUT_update(client, live_server, measure_memory_usage):
 
     # Check in the edit page just to be sure
     res = client.get(
-        url_for("edit_page", uuid=watch_uuid),
+        url_for("ui.ui_edit.edit_page", uuid=watch_uuid),
     )
     assert b"cookie: yum" in res.data, "'cookie: yum' found in 'headers' section"
     assert b"One" in res.data, "Tag 'One' was found"
@@ -341,7 +342,7 @@ def test_api_watch_PUT_update(client, live_server, measure_memory_usage):
 
     # Check in the edit page just to be sure
     res = client.get(
-        url_for("edit_page", uuid=watch_uuid),
+        url_for("ui.ui_edit.edit_page", uuid=watch_uuid),
     )
     assert b"new title" in res.data, "new title found in edit page"
     assert b"552" in res.data, "552 minutes found in edit page"
@@ -365,12 +366,13 @@ def test_api_watch_PUT_update(client, live_server, measure_memory_usage):
     assert b'Additional properties are not allowed' in res.data
 
     # Cleanup everything
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     assert b'Deleted' in res.data
 
 
 def test_api_import(client, live_server, measure_memory_usage):
-    api_key = extract_api_key_from_UI(client)
+    #live_server_setup(live_server)
+    api_key = live_server.app.config['DATASTORE'].data['settings']['application'].get('api_access_token')
 
     res = client.post(
         url_for("import") + "?tag=import-test",
@@ -381,11 +383,55 @@ def test_api_import(client, live_server, measure_memory_usage):
 
     assert res.status_code == 200
     assert len(res.json) == 2
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
     assert b"https://website1.com" in res.data
     assert b"https://website2.com" in res.data
 
     # Should see the new tag in the tag/groups list
     res = client.get(url_for('tags.tags_overview_page'))
     assert b'import-test' in res.data
-    
+
+def test_api_conflict_UI_password(client, live_server, measure_memory_usage):
+
+    #live_server_setup(live_server)
+    api_key = live_server.app.config['DATASTORE'].data['settings']['application'].get('api_access_token')
+
+    # Enable password check and diff page access bypass
+    res = client.post(
+        url_for("settings.settings_page"),
+        data={"application-password": "foobar", # password is now set! API should still work!
+              "application-api_access_token_enabled": "y",
+              "requests-time_between_check-minutes": 180,
+              'application-fetch_backend': "html_requests"},
+        follow_redirects=True
+    )
+
+    assert b"Password protection enabled." in res.data
+
+    # Create a watch
+    set_original_response()
+    test_url = url_for('test_endpoint', _external=True)
+
+    # Create new
+    res = client.post(
+        url_for("createwatch"),
+        data=json.dumps({"url": test_url, "title": "My test URL" }),
+        headers={'content-type': 'application/json', 'x-api-key': api_key},
+        follow_redirects=True
+    )
+
+    assert res.status_code == 201
+
+
+    wait_for_all_checks(client)
+    url = url_for("createwatch")
+    # Get a listing, it will be the first one
+    res = client.get(
+        url,
+        headers={'x-api-key': api_key}
+    )
+    assert res.status_code == 200
+
+    assert len(res.json)
+
+

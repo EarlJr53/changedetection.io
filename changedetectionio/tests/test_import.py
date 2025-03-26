@@ -16,7 +16,7 @@ def test_import(client, live_server, measure_memory_usage):
     wait_for_all_checks(client)
 
     res = client.post(
-        url_for("import_page"),
+        url_for("imports.import_page"),
         data={
             "distill-io": "",
             "urls": """https://example.com
@@ -28,11 +28,11 @@ https://example.com tag1, other tag"""
     assert b"3 Imported" in res.data
     assert b"tag1" in res.data
     assert b"other tag" in res.data
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
 
     # Clear flask alerts
-    res = client.get( url_for("index"))
-    res = client.get( url_for("index"))
+    res = client.get( url_for("watchlist.index"))
+    res = client.get( url_for("watchlist.index"))
 
 def xtest_import_skip_url(client, live_server, measure_memory_usage):
 
@@ -41,7 +41,7 @@ def xtest_import_skip_url(client, live_server, measure_memory_usage):
     time.sleep(1)
 
     res = client.post(
-        url_for("import_page"),
+        url_for("imports.import_page"),
         data={
             "distill-io": "",
             "urls": """https://example.com
@@ -53,9 +53,9 @@ def xtest_import_skip_url(client, live_server, measure_memory_usage):
     assert b"1 Imported" in res.data
     assert b"ht000000broken" in res.data
     assert b"1 Skipped" in res.data
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     # Clear flask alerts
-    res = client.get( url_for("index"))
+    res = client.get( url_for("watchlist.index"))
 
 def test_import_distillio(client, live_server, measure_memory_usage):
 
@@ -82,9 +82,9 @@ def test_import_distillio(client, live_server, measure_memory_usage):
 
     # Give the endpoint time to spin up
     time.sleep(1)
-    client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     res = client.post(
-        url_for("import_page"),
+        url_for("imports.import_page"),
         data={
             "distill-io": distill_data,
             "urls" : ''
@@ -96,7 +96,7 @@ def test_import_distillio(client, live_server, measure_memory_usage):
     assert b"Unable to read JSON file, was it broken?" not in res.data
     assert b"1 Imported from Distill.io" in res.data
 
-    res = client.get( url_for("edit_page", uuid="first"))
+    res = client.get( url_for("ui.ui_edit.edit_page", uuid="first"))
 
     assert b"https://unraid.net/blog" in res.data
     assert b"Unraid | News" in res.data
@@ -113,15 +113,15 @@ def test_import_distillio(client, live_server, measure_memory_usage):
     assert b"xpath:(//div[@id=&#39;App&#39;]/div[contains(@class,&#39;flex&#39;)]/main[contains(@class,&#39;relative&#39;)]/section[contains(@class,&#39;relative&#39;)]/div[@class=&#39;container&#39;]/div[contains(@class,&#39;flex&#39;)]/div[contains(@class,&#39;w-full&#39;)])[1]" in res.data
 
     # did the tags work?
-    res = client.get( url_for("index"))
+    res = client.get( url_for("watchlist.index"))
 
     # check tags
     assert b"nice stuff" in res.data
     assert b"nerd-news" in res.data
 
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     # Clear flask alerts
-    res = client.get(url_for("index"))
+    res = client.get(url_for("watchlist.index"))
 
 def test_import_custom_xlsx(client, live_server, measure_memory_usage):
     """Test can upload a excel spreadsheet and the watches are created correctly"""
@@ -146,7 +146,7 @@ def test_import_custom_xlsx(client, live_server, measure_memory_usage):
         }
 
     res = client.post(
-        url_for("import_page"),
+        url_for("imports.import_page"),
         data=data,
         follow_redirects=True,
     )
@@ -156,7 +156,7 @@ def test_import_custom_xlsx(client, live_server, measure_memory_usage):
     assert b'Error processing row number 1' in res.data
 
     res = client.get(
-        url_for("index")
+        url_for("watchlist.index")
     )
 
     assert b'Somesite results ABC' in res.data
@@ -169,7 +169,7 @@ def test_import_custom_xlsx(client, live_server, measure_memory_usage):
             assert filters[0] == '/html[1]/body[1]/div[4]/div[1]/div[1]/div[1]||//*[@id=\'content\']/div[3]/div[1]/div[1]||//*[@id=\'content\']/div[1]'
             assert watch.get('time_between_check') == {'weeks': 0, 'days': 1, 'hours': 6, 'minutes': 24, 'seconds': 0}
 
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     assert b'Deleted' in res.data
 
 def test_import_watchete_xlsx(client, live_server, measure_memory_usage):
@@ -186,7 +186,7 @@ def test_import_watchete_xlsx(client, live_server, measure_memory_usage):
         }
 
     res = client.post(
-        url_for("import_page"),
+        url_for("imports.import_page"),
         data=data,
         follow_redirects=True,
     )
@@ -194,7 +194,7 @@ def test_import_watchete_xlsx(client, live_server, measure_memory_usage):
     assert b'4 imported from Wachete .xlsx' in res.data
 
     res = client.get(
-        url_for("index")
+        url_for("watchlist.index")
     )
 
     assert b'Somesite results ABC' in res.data
@@ -214,5 +214,5 @@ def test_import_watchete_xlsx(client, live_server, measure_memory_usage):
         if watch.get('title') == 'system default website':
             assert watch.get('fetch_backend') == 'system' # uses default if blank
 
-    res = client.get(url_for("form_delete", uuid="all"), follow_redirects=True)
+    res = client.get(url_for("ui.form_delete", uuid="all"), follow_redirects=True)
     assert b'Deleted' in res.data
